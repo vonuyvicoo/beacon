@@ -10,55 +10,72 @@ const modelId = "gemini-pro";
 const model = configuration.getGenerativeModel({ model: modelId });
 
 const sendMessage = async (req, res) => {
-  var imageurl = "";
-
-  if (req.file) {
-    imageurl = await imageupload(req.file, false);
-  }
-
-  try {
-    const { conversationId, sender, text } = req.body;
-    if (!conversationId || !sender || !text) {
-      return res.status(400).json({
-        error: "Please fill all the fields",
-      });
+    var imageurl = "";
+  
+    // Basic HTML escape function
+    const escapeHTML = (str) => {
+      if (typeof str !== "string") return str;
+      return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    };
+  
+    if (req.file) {
+      imageurl = await imageupload(req.file, false);
     }
-
-    const conversation = await Conversation.findById(conversationId).populate(
-      "members",
-      "-password"
-    );
-
-    //check if conversation contains bot
-    var isbot = false;
-
-    conversation.members.forEach((member) => {
-      if (member != sender && member.email.includes("bot")) {
-        isbot = true;
+  
+    try {
+      let { conversationId, sender, text } = req.body;
+  
+      // Escape HTML tags in text
+      text = escapeHTML(text);
+      console.log(text);
+  
+      if (!conversationId || !sender || !text) {
+        return res.status(400).json({
+          error: "Please fill all the fields",
+        });
       }
-    });
-
-    if (!isbot) {
-      const newMessage = new Message({
-        conversationId,
-        sender,
-        text,
-        imageurl,
-        seenby: [sender],
+  
+      const conversation = await Conversation.findById(conversationId).populate(
+        "members",
+        "-password"
+      );
+  
+      // Check if conversation contains a bot
+      var isbot = false;
+      conversation.members.forEach((member) => {
+        if (member != sender && member.email.includes("bot")) {
+          isbot = true;
+        }
       });
-
-      await newMessage.save();
-      console.log("newMessage saved");
-
-      conversation.updatedAt = new Date();
-      await conversation.save();
-
-      res.json(newMessage);
+  
+      if (!isbot) {
+        const newMessage = new Message({
+          conversationId,
+          sender,
+          text,
+          imageurl,
+          seenby: [sender],
+        });
+  
+        await newMessage.save();
+        console.log("newMessage saved");
+  
+        conversation.updatedAt = new Date();
+        await conversation.save();
+  
+        res.json(newMessage);
+      }
+    } catch (error) {
+      console.error(error);
+      res.status(500).send("Internal Server Error");
     }
-  } catch (error) {
-    res.status(500).send("Internal Server Error");
-  }
-};
+  };
+  
 
 const allMessage = async (req, res) => {
   try {
