@@ -13,7 +13,7 @@
 // LoRa settings
 #define RF95_FREQ 915.0   // LoRa frequency
 #define NODE_ID 3         // This node's ID
-#define MAX_HOPS 5        // Maximum number of hops a message can take
+#define MAX_HOPS 6        // Maximum number of hops a message can take
 
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
@@ -116,7 +116,7 @@ void loop() {
       sscanf((char *)buf, "[%d][%d][%d][%49[^]]]", &sourceID, &destID, &hopCount, payload);
 
       // Check if the message is for this node
-      if (destID == NODE_ID) {
+      if (destID == NODE_ID || destID == 999) {
         String receivedMsg = "Message from Node " + String(sourceID) + ": " + String(payload);
         Serial.println(receivedMsg);
 
