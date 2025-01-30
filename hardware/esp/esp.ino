@@ -13,6 +13,7 @@
 // LoRa settings
 #define RF95_FREQ 915.0   // LoRa frequency
 #define NODE_ID 3         // This node's ID
+#define MAX_HOPS 5        // Maximum number of hops a message can take
 
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
@@ -91,14 +92,17 @@ void setup() {
   Serial.println("LoRa Node Initialized.");
   Serial.println("Enter messages in format: <destination_id>:<message>");
   Serial.println("Example: 1:Hello Node 1!");
+  Serial.println("Special Commands:");
+  Serial.println("  !ping               - Ping all nodes");
 }
 
 void loop() {
-  // check serial
+  // Check for incoming serial data
   if (Serial.available()) {
     String input = Serial.readStringUntil('\n');
     handleUserInput(input);
   }
+
   // Check for incoming LoRa messages
   if (rf95.available()) {
     uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
@@ -107,9 +111,9 @@ void loop() {
     if (rf95.recv(buf, &len)) {
       buf[len] = '\0';  // Null-terminate for string handling
 
-      int sourceID, destID;
+      int sourceID, destID, hopCount;
       char payload[50];
-      sscanf((char *)buf, "[%d][%d][%49[^]]]", &sourceID, &destID, payload);
+      sscanf((char *)buf, "[%d][%d][%d][%49[^]]]", &sourceID, &destID, &hopCount, payload);
 
       // Check if the message is for this node
       if (destID == NODE_ID) {
@@ -120,8 +124,38 @@ void loop() {
           txCharacteristic->setValue(receivedMsg.c_str());
           txCharacteristic->notify();
         }
+
+        // Handle special messages (ping, ack)
+        if (String(payload) == "PING") {
+          Serial.println("Ping received. Sending acknowledgment...");
+          char ackMessage[50];
+          snprintf(ackMessage, sizeof(ackMessage), "[%d][%d][%d][%s]", NODE_ID, sourceID, 0, "Online");
+          rf95.send((uint8_t *)ackMessage, strlen(ackMessage));
+          rf95.waitPacketSent();
+        } else if (String(payload) == "Ack") {
+          Serial.println("Acknowledgment received from Node " + String(sourceID));
+        } else {
+          // Send acknowledgment for regular messages
+          char ackMessage[50];
+          snprintf(ackMessage, sizeof(ackMessage), "[%d][%d][%d][%s]", NODE_ID, sourceID, 0, "Ack");
+          rf95.send((uint8_t *)ackMessage, strlen(ackMessage));
+          rf95.waitPacketSent();
+        }
+      } else if (hopCount < MAX_HOPS) {
+        // Forward the message
+        hopCount++;
+        char message[50];
+        snprintf(message, sizeof(message), "[%d][%d][%d][%s]", sourceID, destID, hopCount, payload);
+
+        Serial.print("Forwarding message to Node ");
+        Serial.print(destID);
+        Serial.print(" with hop count ");
+        Serial.println(hopCount);
+
+        rf95.send((uint8_t *)message, strlen(message));
+        rf95.waitPacketSent();
       } else {
-        Serial.println("Message not for this node.");
+        Serial.println("Message dropped. Maximum hop count reached.");
       }
     }
   }
@@ -134,21 +168,31 @@ void loop() {
 }
 
 void handleUserInput(const String &input) {
-  int delimiterIndex = input.indexOf(':');
-  if (delimiterIndex != -1) {
-    int destID = input.substring(0, delimiterIndex).toInt();
-    String userMessage = input.substring(delimiterIndex + 1);
+  if (input == "!ping") {
+    // Send a ping message to all nodes
+    char pingMessage[50];
+    snprintf(pingMessage, sizeof(pingMessage), "[%d][%d][%d][%s]", NODE_ID, 999, 0, "PING");
+    Serial.println("Pinging all nodes...");
 
-    // Format the complete message
-    char message[50];
-    snprintf(message, sizeof(message), "[%d][%d][%s]", NODE_ID, destID, userMessage.c_str());
-
-    Serial.print("Sending: ");
-    Serial.println(message);
-
-    rf95.send((uint8_t *)message, strlen(message));
+    rf95.send((uint8_t *)pingMessage, strlen(pingMessage));
     rf95.waitPacketSent();
   } else {
-    Serial.println("Invalid format. Use: <destination_id>:<message>");
+    int delimiterIndex = input.indexOf(':');
+    if (delimiterIndex != -1) {
+      int destID = input.substring(0, delimiterIndex).toInt();
+      String userMessage = input.substring(delimiterIndex + 1);
+
+      // Format the complete message
+      char message[50];
+      snprintf(message, sizeof(message), "[%d][%d][%d][%s]", NODE_ID, destID, 0, userMessage.c_str());
+
+      Serial.print("Sending: ");
+      Serial.println(message);
+
+      rf95.send((uint8_t *)message, strlen(message));
+      rf95.waitPacketSent();
+    } else {
+      Serial.println("Invalid format. Use: <destination_id>:<message>");
+    }
   }
 }
