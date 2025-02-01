@@ -8,7 +8,7 @@ CHARACTERISTIC_UUID_RX = "12345678-1234-1234-1234-123456789abd"
 CHARACTERISTIC_UUID_TX = "12345678-1234-1234-1234-123456789abe"
 
 # Define the BLE device address (replace with your device's address)
-DEVICE_ADDRESS = "75BC9C26-8F4E-A81B-CE39-7A4943B73324"  # Replace with your BLE device's address
+DEVICE_ADDRESS = "94:E6:86:3B:9C:F6"  # Replace with your BLE device's address
 
 # Global variables to store the BLE client
 ble_client = None
