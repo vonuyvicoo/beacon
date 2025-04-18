@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chat UI Example</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: Arial, sans-serif;
+    }
+    body {
+      background: #f0f0f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    .chat-container {
+      background: #ffffff;
+      width: 400px;
+      border-radius: 16px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .chat-header {
+      background: #4a3aff;
+      color: #ffffff;
+      padding: 16px;
+      font-size: 18px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .status {
+      font-size: 14px;
+      opacity: 0.8;
+    }
+    .chat-body {
+      flex: 1;
+      padding: 16px;
+      display: flex;
+      flex-direction: column-reverse; /* new messages on top */
+      overflow-y: auto;
+    }
+    .message {
+      margin: 8px 0;
+      display: inline-block;
+      padding: 10px 14px;
+      border-radius: 18px;
+      max-width: 75%;
+      word-wrap: break-word;
+      line-height: 1.4;
+      clear: both;
+    }
+    .received {
+      background: #eeeeee;
+      align-self: flex-start;
+    }
+    .sent {
+      background: #d2f8d2;
+      align-self: flex-end;
+    }
+    .chat-footer {
+      padding: 8px;
+      display: flex;
+      gap: 8px;
+      background: #f9f9f9;
+      border-top: 1px solid #ddd;
+    }
+    .chat-footer input[type="text"] {
+      flex: 1;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      outline: none;
+    }
+    .chat-footer button {
+      background: #4a3aff;
+      color: #ffffff;
+      border: none;
+      padding: 0 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .chat-footer button:hover {
+      opacity: 0.9;
+    }
+  </style>
+</head>
+<body>
+  <div class="chat-container">
+    <div class="chat-header">
+      <span>Larry Machigo</span>
+      <span class="status">Online</span>
+    </div>
+    <div class="chat-body" id="messageLog"></div>
+    <div class="chat-footer">
+      <input type="text" id="destid" placeholder="Recipient ID">
+      <input type="text" id="message" placeholder="Type your message...">
+      <button onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+
+  <script>
+    // Connect to WebSocket server on port 81
+    var ws = new WebSocket('ws://' + window.location.hostname + ':8081/');
+
+    // Display incoming messages
+    ws.onmessage = function(event) {
+      var log = document.getElementById('messageLog');
+      var newMessage = document.createElement('div');
+      newMessage.className = 'message received';
+      newMessage.textContent = event.data;
+      log.insertBefore(newMessage, log.firstChild);
+    };
+
+    // Send message to /send
+    function sendMessage() {
+      var destid = document.getElementById('destid').value.trim();
+      var message = document.getElementById('message').value.trim();
+      if (!message) return;
+
+      // Show the message locally
+      var log = document.getElementById('messageLog');
+      var sentMessage = document.createElement('div');
+      sentMessage.className = 'message sent';
+      sentMessage.textContent = message;
+      log.insertBefore(sentMessage, log.firstChild);
+
+      // POST to /send
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/send', true);
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+      xhr.send('destid=' + encodeURIComponent(destid) + '&message=' + encodeURIComponent(message));
+
+      document.getElementById('message').value = '';
+    }
+  </script>
+</body>
+</html>
