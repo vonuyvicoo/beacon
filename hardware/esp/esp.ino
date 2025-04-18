@@ -19,12 +19,14 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
 
-// Enhanced message structure
+// Enhanced message structure with sender and receiver IDs
 struct Message {
   String content;
   bool isAcknowledged;
   String timestamp;
   String type;  // "sent", "received", or "status"
+  int senderID;
+  int receiverID;
 };
 
 Message messageLog[10];
@@ -165,6 +167,11 @@ void handleRoot() {
                 from { opacity: 0; transform: translateY(10px); }
                 to { opacity: 1; transform: translateY(0); }
             }
+            .message-meta {
+                font-size: 0.8em;
+                color: #666;
+                margin-top: 5px;
+            }
         </style>
         <script>
             var ws = new WebSocket('ws://' + window.location.hostname + ':81/');
@@ -179,6 +186,13 @@ void handleRoot() {
                 if (messageData.isAcknowledged) {
                     content += '<div class="acknowledged">✓ Delivered</div>';
                 }
+                
+                // Add sender and receiver info when applicable
+                if (messageData.type !== 'status') {
+                    content += '<div class="message-meta">Node ' + messageData.senderID + 
+                              ' → Node ' + messageData.receiverID + '</div>';
+                }
+                
                 content += '<div class="timestamp">' + messageData.timestamp + '</div>';
                 
                 messageDiv.innerHTML = content;
@@ -221,15 +235,18 @@ void handleRoot() {
   server.send(200, "text/html", html);
 }
 
-void addToMessageLog(String content, bool isAcknowledged, String type) {
+void addToMessageLog(String content, bool isAcknowledged, String type, int senderID, int receiverID) {
   String timestamp = String(millis() / 1000) + "s";  // Simple timestamp
-  messageLog[messageIndex] = {content, isAcknowledged, timestamp, type};
+  messageLog[messageIndex] = {content, isAcknowledged, timestamp, type, senderID, receiverID};
   
-  // Create JSON for WebSocket
-  String json = "{\"content\":\"" + content + "\",\"isAcknowledged\":" + 
-                (isAcknowledged ? "true" : "false") + ",\"timestamp\":\"" + 
-                timestamp + "\",\"type\":\"" + type + "\"}";
-  
+  // Create JSON for WebSocket with sender and receiver IDs
+  String json = "{\"content\":\"" + content + 
+                "\",\"isAcknowledged\":" + (isAcknowledged ? "true" : "false") + 
+                ",\"timestamp\":\"" + timestamp + 
+                "\",\"type\":\"" + type + 
+                "\",\"senderID\":" + String(senderID) + 
+                ",\"receiverID\":" + String(receiverID) + "}";
+                
   webSocket.broadcastTXT(json);
   messageIndex = (messageIndex + 1) % 10;
 }
@@ -261,15 +278,15 @@ void loop() {
         if (receivedMsg == "Ack") {
           // Update the sent message status
           String statusMsg = "Message delivered to Node " + String(sourceID);
-          addToMessageLog(statusMsg, true, "status");
+          addToMessageLog(statusMsg, true, "status", sourceID, NODE_ID);
         } else if (receivedMsg == "PING") {
-          addToMessageLog("Ping received from Node " + String(sourceID), false, "status");
+          addToMessageLog("Ping received from Node " + String(sourceID), false, "status", sourceID, NODE_ID);
           char ackMessage[50];
           snprintf(ackMessage, sizeof(ackMessage), "[%d][%d][%d][%s]", NODE_ID, sourceID, 0, "Online");
           rf95.send((uint8_t *)ackMessage, strlen(ackMessage));
           rf95.waitPacketSent();
         } else {
-          addToMessageLog("From Node " + String(sourceID) + ": " + receivedMsg, false, "received");
+          addToMessageLog(receivedMsg, false, "received", sourceID, NODE_ID);
           // Send acknowledgment
           char ackMessage[50];
           snprintf(ackMessage, sizeof(ackMessage), "[%d][%d][%d][%s]", NODE_ID, sourceID, 0, "Ack");
@@ -292,7 +309,7 @@ void handleSend() {
     rf95.send((uint8_t *)loraMessage, strlen(loraMessage));
     rf95.waitPacketSent();
     
-    addToMessageLog("To Node " + String(destID) + ": " + message, false, "sent");
+    addToMessageLog(message, false, "sent", NODE_ID, destID);
     server.send(200, "text/plain", "Message sent");
   }
 }
@@ -307,13 +324,20 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
       // Send existing messages to newly connected client
       for (int i = 0; i < 10; i++) {
         if (messageLog[i].content != "") {
-          String json = "{\"content\":\"" + messageLog[i].content + 
-                       "\",\"isAcknowledged\":" + (messageLog[i].isAcknowledged ? "true" : "false") + 
-                       ",\"timestamp\":\"" + messageLog[i].timestamp + 
-                       "\",\"type\":\"" + messageLog[i].type + "\"}";
+          String json = "{"
+                        "\"content\":\"" + messageLog[i].content + "\","
+                        "\"isAcknowledged\":" + (messageLog[i].isAcknowledged ? "true" : "false") + ","
+                        "\"timestamp\":\"" + messageLog[i].timestamp + "\","
+                        "\"type\":\"" + messageLog[i].type + "\","
+                        "\"senderID\":" + String(messageLog[i].senderID) + ","
+                        "\"receiverID\":" + String(messageLog[i].receiverID) + 
+                        "}";
+
           webSocket.sendTXT(num, json);
         }
       }
+
+      Serial.printf("Messages Sent");
       break;
   }
 }
@@ -325,7 +349,7 @@ void handleUserInput(const String &input) {
     Serial.println("Pinging all nodes...");
     rf95.send((uint8_t *)pingMessage, strlen(pingMessage));
     rf95.waitPacketSent();
-    addToMessageLog("Pinging all nodes...", false, "status");
+    addToMessageLog("Pinging all nodes...", false, "status", NODE_ID, 999);
   } else {
     int delimiterIndex = input.indexOf(':');
     if (delimiterIndex != -1) {
@@ -335,7 +359,7 @@ void handleUserInput(const String &input) {
       snprintf(message, sizeof(message), "[%d][%d][%d][%s]", NODE_ID, destID, 0, userMessage.c_str());
       rf95.send((uint8_t *)message, strlen(message));
       rf95.waitPacketSent();
-      addToMessageLog("To Node " + String(destID) + ": " + userMessage, false, "sent");
+      addToMessageLog("To Node " + String(destID) + ": " + userMessage, false, "sent", NODE_ID, destID);
     }
   }
 }
